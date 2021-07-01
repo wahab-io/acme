@@ -23,7 +23,7 @@ infrastucture = InfrastructureStack(
     # env=core.Environment(account=os.getenv('CDK_DEFAULT_ACCOUNT'), region=os.getenv('CDK_DEFAULT_REGION')),
     # Uncomment the next line if you know exactly what Account and Region you
     # want to deploy the stack to. */
-    env=cdk.Environment(account="420058945283", region="us-east-1"),
+    env=cdk.Environment(account=os.getenv("AWS_ACCOUNT"), region=os.getenv("AWS_REGION")),
     # For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
 )
 
@@ -41,7 +41,7 @@ JenkinsStack(
     "jenkins",
     infrastucture.cluster,
     jenkins_props,
-    env=cdk.Environment(account="420058945283", region="us-east-1"),
+    env=cdk.Environment(account=os.getenv("AWS_ACCOUNT"), region=os.getenv("AWS_REGION")),
 )
 
 app.synth()
