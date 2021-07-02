@@ -19,8 +19,6 @@ class JenkinsStack(cdk.Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        sg_alb = ec2.SecurityGroup(self, "sg-jenkins-alb", vpc=cluster.vpc)
-
         file_system = efs.FileSystem(
             self,
             "jenkins-fs",
@@ -45,6 +43,8 @@ class JenkinsStack(cdk.Stack):
             create_acl=efs.Acl(owner_gid="1000", owner_uid="1000", permissions="755"),
             posix_user=efs.PosixUser(gid="0", uid="0"),
         )
+
+        sg_alb = ec2.SecurityGroup(self, "sg-jenkins-alb", vpc=cluster.vpc)
 
         alb = elb.ApplicationLoadBalancer(
             self,
@@ -73,7 +73,7 @@ class JenkinsStack(cdk.Stack):
             health_check_grace_period=cdk.Duration.minutes(5),
             task_image_options={
                 "container_name": "jenkins-controller",
-                "image": ecs.ContainerImage.from_registry("jenkins/jenkins:lts-jdk11"),
+                "image": ecs.ContainerImage.from_registry(props["controller_image"]),
                 "container_port": 8080,
                 "environment": {"ADMIN_PWD": props["admin_password"]},
             },
