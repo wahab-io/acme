@@ -2,6 +2,7 @@ from aws_cdk import (
     core as cdk,
     aws_ec2 as ec2,
     aws_elasticloadbalancingv2 as elb,
+    aws_efs as efs,
     aws_ecs as ecs,
     aws_ecs_patterns as ecs_patterns,
 )
@@ -19,6 +20,31 @@ class JenkinsStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         sg_alb = ec2.SecurityGroup(self, "sg-jenkins-alb", vpc=cluster.vpc)
+
+        file_system = efs.FileSystem(
+            self,
+            "jenkins-fs",
+            vpc=cluster.vpc,
+            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+            vpc_subnets=ec2.SubnetSelection(
+                subnets=[
+                    ec2.Subnet.from_subnet_id(
+                        self, "jenkins-efs-subnet-1", props["jenkins_subnet_1"]
+                    ),
+                    ec2.Subnet.from_subnet_id(
+                        self, "jenkins-efs-subnet-2", props["jenkins_subnet_2"]
+                    ),
+                ]
+            ),
+        )
+
+        access_point = file_system.add_access_point(
+            "jenkins-efs-access-point",
+            path="/",
+            create_acl=efs.Acl(owner_gid="1000", owner_uid="1000", permissions="755"),
+            posix_user=efs.PosixUser(gid="0", uid="0"),
+        )
 
         alb = elb.ApplicationLoadBalancer(
             self,
@@ -44,7 +70,9 @@ class JenkinsStack(cdk.Stack):
             cluster=cluster,
             cpu=512,
             memory_limit_mib=1024,
+            health_check_grace_period=cdk.Duration.minutes(5),
             task_image_options={
+                "container_name": "jenkins-controller",
                 "image": ecs.ContainerImage.from_registry("jenkins/jenkins:lts-jdk11"),
                 "container_port": 8080,
                 "environment": {"ADMIN_PWD": props["admin_password"]},
@@ -63,7 +91,28 @@ class JenkinsStack(cdk.Stack):
             ),
         )
 
-        # update default health check, because it was throwing failure (503) and draining the ecs-tasks
-        self.jenkins_service.target_group.configure_health_check(
-            path="/login", healthy_http_codes="200", interval=cdk.Duration.minutes(5)
+        self.jenkins_service.task_definition.add_volume(
+            name="jenkins-efs",
+            efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                file_system_id=file_system.file_system_id,
+                authorization_config=ecs.AuthorizationConfig(
+                    access_point_id=access_point.access_point_id
+                ),
+                root_directory="/",
+                transit_encryption="ENABLED",
+            ),
         )
+
+        self.jenkins_service.task_definition.default_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/var/jenkins_home",
+                read_only=False,
+                source_volume="jenkins-efs",
+            )
+        )
+
+        self.jenkins_service.task_definition.default_container.add_port_mappings(
+            ecs.PortMapping(container_port=50000, host_port=50000)
+        )
+
+        file_system.connections.allow_default_port_from(self.jenkins_service.service)
