@@ -1,4 +1,10 @@
-from aws_cdk import core as cdk, aws_ec2 as ec2, aws_ecs as ecs
+from aws_cdk import (
+    core as cdk,
+    aws_ec2 as ec2,
+    aws_ecs as ecs,
+    aws_ecr as ecr,
+)
+from aws_cdk.aws_servicediscovery import NamespaceType
 
 
 class InfrastructureStack(cdk.Stack):
@@ -9,4 +15,8 @@ class InfrastructureStack(cdk.Stack):
             self, "development-vpc", vpc_id=vpc_id, is_default=False
         )
 
-        self.cluster = ecs.Cluster(self, "infrastructure-cluster", vpc=vpc)
+        self.cluster = ecs.Cluster(
+            self,
+            "infrastructure-cluster",
+            vpc=vpc,
+        )

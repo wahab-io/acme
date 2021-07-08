@@ -1,58 +1,6 @@
+# Infrastructure
 
-# Welcome to your CDK Python project!
+This cdk project is primarily responsible for deploying infrastructure resources that necessary to run the successful SDLC.
+# Limitations
 
-This is a blank project for Python development with CDK.
-
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
-
-This project is set up like a standard Python project.  The initialization
-process also creates a virtualenv within this project, stored under the `.venv`
-directory.  To create the virtualenv it assumes that there is a `python3`
-(or `python` for Windows) executable in your path with access to the `venv`
-package. If for any reason the automatic creation of the virtualenv fails,
-you can create the virtualenv manually.
-
-To manually create a virtualenv on MacOS and Linux:
-
-```
-$ python3 -m venv .venv
-```
-
-After the init process completes and the virtualenv is created, you can use the following
-step to activate your virtualenv.
-
-```
-$ source .venv/bin/activate
-```
-
-If you are a Windows platform, you would activate the virtualenv like this:
-
-```
-% .venv\Scripts\activate.bat
-```
-
-Once the virtualenv is activated, you can install the required dependencies.
-
-```
-$ pip install -r requirements.txt
-```
-
-At this point you can now synthesize the CloudFormation template for this code.
-
-```
-$ cdk synth
-```
-
-To add additional dependencies, for example other CDK libraries, just add
-them to your `setup.py` file and rerun the `pip install -r requirements.txt`
-command.
-
-## Useful commands
-
- * `cdk ls`          list all stacks in the app
- * `cdk synth`       emits the synthesized CloudFormation template
- * `cdk deploy`      deploy this stack to your default AWS account/region
- * `cdk diff`        compare deployed stack with current state
- * `cdk docs`        open CDK documentation
-
-Enjoy!
+- Due to lack of support for AWS Cloud Map to provision Private DNS Hosted Zone in shared VPC, we have to rely on container IP addresses for communication. Once, the Jenkins is up and running, under `Manage Jenkins` go to, `Manage Nodes and Cloud` and then click `Configure Clouds`. Under Amazon EC2 Container Service Cloud, expand by clicking `Advanced...` and then update the `Alternate Jenkins URL` value to appropiate assigned Jenkins controller **IP Address** and **Port**. e.g. `http://10.0.x.x:8080` (if your network is based on CIDR range of `10.0.0.0/16`)

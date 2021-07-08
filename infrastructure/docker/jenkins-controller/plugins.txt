@@ -1,0 +1,4 @@
+amazon-ecs:1.38
+blueocean:1.24.7
+pipeline-cloudwatch-logs:0.2
+configuration-as-code:1.51

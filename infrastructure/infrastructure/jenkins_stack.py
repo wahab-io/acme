@@ -5,6 +5,9 @@ from aws_cdk import (
     aws_efs as efs,
     aws_ecs as ecs,
     aws_ecs_patterns as ecs_patterns,
+    aws_ecr_assets as ecr_assets,
+    aws_iam as iam,
+    aws_logs as logs,
 )
 
 
@@ -15,7 +18,7 @@ class JenkinsStack(cdk.Stack):
         construct_id: str,
         cluster: ecs.Cluster,
         props,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -64,6 +67,74 @@ class JenkinsStack(cdk.Stack):
             security_group=sg_alb,
         )
 
+        sg_jenkins = ec2.SecurityGroup(
+            self,
+            "JenkinsSecurityGroup",
+            vpc=cluster.vpc,
+            description="Jenkins Security Group for Controller and Agents",
+        )
+
+        sg_jenkins.connections.allow_from(
+            other=sg_alb,
+            port_range=ec2.Port(
+                protocol=ec2.Protocol.TCP,
+                string_representation="Jenkins Listener Port",
+                from_port=8080,
+                to_port=8080,
+            ),
+            description="Allow connections from Load Balancer Security Group",
+        )
+
+        sg_jenkins.connections.allow_internally(
+            port_range=ec2.Port(
+                protocol=ec2.Protocol.TCP,
+                string_representation="Jenkins Listener Port",
+                from_port=8080,
+                to_port=8080,
+            ),
+            description="Allow connections from Jenkins Agents in the same Security Group",
+        )
+
+        sg_jenkins.connections.allow_internally(
+            port_range=ec2.Port(
+                protocol=ec2.Protocol.TCP,
+                string_representation="Jenkins Agent Port",
+                from_port=50000,
+                to_port=50000,
+            ),
+            description="Allow connections from Jenkins Agent on Agent Port(50000)",
+        )
+
+        agent_execution_role = iam.Role(
+            self,
+            "AgentExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        agent_execution_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name(
+                "service-role/AmazonECSTaskExecutionRolePolicy"
+            )
+        )
+
+        agent_task_role = iam.Role(
+            self,
+            "AgentTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        agent_log_group = logs.LogGroup(
+            self, "AgentLogGroup", retention=logs.RetentionDays.ONE_WEEK, removal_policy=cdk.RemovalPolicy.DESTROY
+        )
+
+        agent_log_stream = logs.LogStream(
+            self, "AgentLogStream", log_group=agent_log_group, removal_policy=cdk.RemovalPolicy.DESTROY
+        )
+
+        self.controller_image = ecr_assets.DockerImageAsset(
+            self, "jenkins-controller-image", directory="./docker/jenkins-controller"
+        )
+
         self.jenkins_service = ecs_patterns.ApplicationLoadBalancedFargateService(
             self,
             "jenkins-service",
@@ -73,9 +144,25 @@ class JenkinsStack(cdk.Stack):
             health_check_grace_period=cdk.Duration.minutes(5),
             task_image_options={
                 "container_name": "jenkins-controller",
-                "image": ecs.ContainerImage.from_registry(props["controller_image"]),
+                "image": ecs.ContainerImage.from_docker_image_asset(
+                    self.controller_image
+                ),
                 "container_port": 8080,
-                "environment": {"ADMIN_PWD": props["admin_password"]},
+                "environment": {
+                    "JAVA_OPTS": "-Djenkins.install.runSetupWizard=false",
+                    # https://github.com/jenkinsci/configuration-as-code-plugin/blob/leader/README.md#getting-started
+                    "CASC_JENKINS_CONFIG": "/jenkins.yaml",
+                    "cluster_arn": cluster.cluster_arn,
+                    "aws_region": self.region,
+                    "jenkins_url": f"http://{alb.load_balancer_dns_name}/",
+                    "admin_password": props["admin_password"],
+                    "subnet_ids": f"{props['jenkins_subnet_1']},{props['jenkins_subnet_2']}",
+                    "security_group_ids": sg_jenkins.security_group_id,
+                    "execution_role_arn": agent_execution_role.role_arn,
+                    "task_role_arn": agent_task_role.role_arn,
+                    "worker_log_group": agent_log_group.log_group_name,
+                    "worker_log_stream_prefix": agent_log_stream.log_stream_name,
+                },
             },
             desired_count=1,
             load_balancer=alb,
@@ -89,6 +176,7 @@ class JenkinsStack(cdk.Stack):
                     ),
                 ]
             ),
+            security_groups=[sg_jenkins],
         )
 
         self.jenkins_service.task_definition.add_volume(
@@ -113,6 +201,86 @@ class JenkinsStack(cdk.Stack):
 
         self.jenkins_service.task_definition.default_container.add_port_mappings(
             ecs.PortMapping(container_port=50000, host_port=50000)
+        )
+
+        self.jenkins_service.target_group.health_check.
+
+        # IAM Statements to allow jenkins ecs plugin to talk to ECS as well as the Jenkins cluster #
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ecs:RegisterTaskDefinition",
+                    "ecs:DeregisterTaskDefinition",
+                    "ecs:ListClusters",
+                    "ecs:DescribeContainerInstances",
+                    "ecs:ListTaskDefinitions",
+                    "ecs:DescribeTaskDefinition",
+                    "ecs:DescribeTasks",
+                ],
+                resources=["*"],
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:ListContainerInstances"], resources=[cluster.cluster_arn]
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:RunTask"],
+                resources=[
+                    "arn:aws:ecs:{0}:{1}:task-definition/fargate-agents*".format(
+                        self.region,
+                        self.account,
+                    )
+                ],
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:StopTask"],
+                resources=[
+                    "arn:aws:ecs:{0}:{1}:task/*".format(self.region, self.account)
+                ],
+                conditions={
+                    "ForAnyValue:ArnEquals": {"ecs:cluster": cluster.cluster_arn}
+                },
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:DescribeTasks"],
+                resources=[
+                    "arn:aws:ecs:{0}:{1}:task/*".format(self.region, self.account)
+                ],
+                conditions={
+                    "ForAnyValue:ArnEquals": {"ecs:cluster": cluster.cluster_arn}
+                },
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["iam:PassRole"],
+                resources=[agent_task_role.role_arn, agent_execution_role.role_arn],
+            )
+        )
+
+        self.jenkins_service.service.task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "logs:DescribeLogStreams",
+                    "logs:FilterLogEvents",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:GetLogEvents",
+                ],
+                resources=[agent_log_group.log_group_arn],
+            )
         )
 
         file_system.connections.allow_default_port_from(self.jenkins_service.service)

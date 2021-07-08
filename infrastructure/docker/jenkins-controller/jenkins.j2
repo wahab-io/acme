@@ -1,0 +1,56 @@
+jenkins:
+  systemMessage: "ACME Jenkins (Running on AWS ECS)"
+  numExecutors: 0
+  # remotingSecurity:
+  #  enabled: true
+  agentProtocols:
+   - "JNLP4-connect"
+  # securityRealm:
+  #  local:
+  #    allowsSignup: false
+  #    users:
+  #      - id: admin
+  #        password: {{ADMIN_PASSWORD}}
+  # authorizationStrategy:
+  #  globalMatrix:
+  #    grantedPermissions:
+  #      - "Overall/Read:anonymous"
+  #      - "Job/Read:anonymous"
+  #      - "View/Read:anonymous"
+  #      - "Overall/Administer:authenticated"
+  crumbIssuer: "standard"
+  slaveAgentPort: 50000
+  clouds:
+    - ecs:
+        allowedOverrides: "inheritFrom,label,memory,cpu,image"
+        cluster: {{ECS_CLUSTER_ARN}}
+        # Credentials should not be set locally. Use IAM roles assigned to the container.
+        credentialsId: False
+        regionName: {{AWS_REGION}}
+        name: fargate-agents
+        jenkinsUrl: {{JENKINS_URL}}
+        templates:
+          - label: fargate-agents
+            templateName: fargate-agent-nodes
+            # Build image and store in ECR. Benefits: fast download time, control image on your own
+            image: jenkins/inbound-agent
+            launchType: FARGATE
+            networkMode: awsvpc
+            # Soft memory limit
+            memoryReservation: 2048
+            cpu: 1024
+            subnets: {{SUBNET_IDS}}
+            securityGroups: {{SECURITY_GROUP_IDS}}
+            executionRole: {{EXECUTION_ROLE_ARN}}
+            # taskrole: {{TASK_ROLE_ARN}}
+            logDriver: awslogs
+            logDriverOptions:
+              - name: awslogs-region
+                value: {{AWS_REGION}}
+              - name: awslogs-group
+                value: {{LOG_GROUP}}
+              - name: awslogs-stream-prefix
+                value: {{LOG_STREAM_PREFIX}}
+aws:
+  cloudWatchLogs:
+    logGroupName: {{LOG_GROUP}}
