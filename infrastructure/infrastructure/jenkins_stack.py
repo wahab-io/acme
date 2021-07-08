@@ -124,11 +124,17 @@ class JenkinsStack(cdk.Stack):
         )
 
         agent_log_group = logs.LogGroup(
-            self, "AgentLogGroup", retention=logs.RetentionDays.ONE_WEEK, removal_policy=cdk.RemovalPolicy.DESTROY
+            self,
+            "AgentLogGroup",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
         agent_log_stream = logs.LogStream(
-            self, "AgentLogStream", log_group=agent_log_group, removal_policy=cdk.RemovalPolicy.DESTROY
+            self,
+            "AgentLogStream",
+            log_group=agent_log_group,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
         self.controller_image = ecr_assets.DockerImageAsset(
@@ -139,8 +145,8 @@ class JenkinsStack(cdk.Stack):
             self,
             "jenkins-service",
             cluster=cluster,
-            cpu=512,
-            memory_limit_mib=1024,
+            cpu=1024,
+            memory_limit_mib=2048,
             health_check_grace_period=cdk.Duration.minutes(5),
             task_image_options={
                 "container_name": "jenkins-controller",
@@ -154,7 +160,7 @@ class JenkinsStack(cdk.Stack):
                     "CASC_JENKINS_CONFIG": "/jenkins.yaml",
                     "cluster_arn": cluster.cluster_arn,
                     "aws_region": self.region,
-                    "jenkins_url": f"http://{alb.load_balancer_dns_name}/",
+                    "jenkins_url": f"http://{alb.load_balancer_dns_name}/",  # Once, the Jenkins is fully deployed this needs to be updated to container IP Address and Port
                     "admin_password": props["admin_password"],
                     "subnet_ids": f"{props['jenkins_subnet_1']},{props['jenkins_subnet_2']}",
                     "security_group_ids": sg_jenkins.security_group_id,
@@ -202,8 +208,6 @@ class JenkinsStack(cdk.Stack):
         self.jenkins_service.task_definition.default_container.add_port_mappings(
             ecs.PortMapping(container_port=50000, host_port=50000)
         )
-
-        self.jenkins_service.target_group.health_check.
 
         # IAM Statements to allow jenkins ecs plugin to talk to ECS as well as the Jenkins cluster #
         self.jenkins_service.service.task_definition.add_to_task_role_policy(
