@@ -209,6 +209,8 @@ class JenkinsStack(cdk.Stack):
             ecs.PortMapping(container_port=50000, host_port=50000)
         )
 
+        self.jenkins_service.target_group.configure_health_check(path="/login")
+
         # IAM Statements to allow jenkins ecs plugin to talk to ECS as well as the Jenkins cluster #
         self.jenkins_service.service.task_definition.add_to_task_role_policy(
             iam.PolicyStatement(
